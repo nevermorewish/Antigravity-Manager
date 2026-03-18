@@ -1,8 +1,8 @@
 services:
   antigravity-manager:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: .
+      dockerfile: Dockerfile
     image: lbjlaq/antigravity-manager
     container_name: antigravity-manager
     network_mode: host  # 使用宿主机网络，可直接访问 localhost:8045

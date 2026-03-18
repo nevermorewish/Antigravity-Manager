@@ -502,10 +502,28 @@ pub fn wrap_request(
     }
 
     // [ADDED v4.1.24] 扩展 toolConfig 到 VALIDATED 模式
+    // [FIX] 当 googleSearch (内置工具) 与 functionDeclarations (自定义函数) 同时存在时，
+    // 必须设置 includeServerSideToolInvocations: true，否则 Gemini API 返回 400
     if inner_request.get("tools").is_some() && !inner_request.get("toolConfig").is_some() {
-        inner_request["toolConfig"] = json!({
-            "functionCallingConfig": { "mode": "VALIDATED" }
-        });
+        let has_mixed_tools = inner_request.get("tools")
+            .and_then(|t| t.as_array())
+            .map(|arr| {
+                let has_functions = arr.iter().any(|t| t.get("functionDeclarations").is_some());
+                let has_builtin = arr.iter().any(|t| t.get("googleSearch").is_some() || t.get("googleSearchRetrieval").is_some());
+                has_functions && has_builtin
+            })
+            .unwrap_or(false);
+
+        if has_mixed_tools {
+            inner_request["toolConfig"] = json!({
+                "functionCallingConfig": { "mode": "VALIDATED" },
+                "includeServerSideToolInvocations": true
+            });
+        } else {
+            inner_request["toolConfig"] = json!({
+                "functionCallingConfig": { "mode": "VALIDATED" }
+            });
+        }
     }
 
     // [ADDED v4.1.24] 注入基于账号的稳定 sessionId
