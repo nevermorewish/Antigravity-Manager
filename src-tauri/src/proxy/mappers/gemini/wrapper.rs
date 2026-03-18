@@ -504,16 +504,16 @@ pub fn wrap_request(
     // [ADDED v4.1.24] 扩展 toolConfig 到 VALIDATED 模式
     // [FIX] 当 googleSearch (内置工具) 与 functionDeclarations (自定义函数) 同时存在时，
     // 必须设置 includeServerSideToolInvocations: true，否则 Gemini API 返回 400
-    if inner_request.get("tools").is_some() && !inner_request.get("toolConfig").is_some() {
-        let has_mixed_tools = inner_request.get("tools")
-            .and_then(|t| t.as_array())
-            .map(|arr| {
-                let has_functions = arr.iter().any(|t| t.get("functionDeclarations").is_some());
-                let has_builtin = arr.iter().any(|t| t.get("googleSearch").is_some() || t.get("googleSearchRetrieval").is_some());
-                has_functions && has_builtin
-            })
-            .unwrap_or(false);
+    let has_mixed_tools = inner_request.get("tools")
+        .and_then(|t| t.as_array())
+        .map(|arr| {
+            let has_functions = arr.iter().any(|t| t.get("functionDeclarations").is_some());
+            let has_builtin = arr.iter().any(|t| t.get("googleSearch").is_some() || t.get("googleSearchRetrieval").is_some());
+            has_functions && has_builtin
+        })
+        .unwrap_or(false);
 
+    if inner_request.get("tools").is_some() && !inner_request.get("toolConfig").is_some() {
         inner_request["toolConfig"] = json!({
             "functionCallingConfig": { "mode": "VALIDATED" }
         });
@@ -525,7 +525,7 @@ pub fn wrap_request(
     }
 
     let sid = session_id.unwrap_or("default");
-    let final_request = json!({
+    let mut final_request = json!({
         "project": project_id,
         // [CHANGED v4.1.24] Structured requestId to match official format
         "requestId": format!("agent/antigravity/{}/{}", &sid[..sid.len().min(8)], message_count),
@@ -535,6 +535,12 @@ pub fn wrap_request(
         // [CHANGED v4.1.24] Use "agent" for all non-image requests
         "requestType": if config.request_type == "image_gen" { "image_gen" } else { "agent" }
     });
+
+    // [FIX] includeServerSideToolInvocations 必须放在外层 (与 request 同级)，
+    // 放在 request.toolConfig 内会导致 v1internal 返回 400 "Cannot find field"
+    if has_mixed_tools {
+        final_request["includeServerSideToolInvocations"] = json!(true);
+    }
 
     final_request
 }
