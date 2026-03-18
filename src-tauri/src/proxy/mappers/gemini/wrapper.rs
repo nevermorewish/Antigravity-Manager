@@ -524,23 +524,26 @@ pub fn wrap_request(
         inner_request["sessionId"] = json!(crate::proxy::common::session::derive_session_id(account_id_str));
     }
 
+    // [FIX] includeServerSideToolInvocations must be in toolConfig for mixed tools.
+    if has_mixed_tools {
+        if let Some(tool_config) = inner_request.get_mut("toolConfig").and_then(|t| t.as_object_mut()) {
+            tool_config.insert("includeServerSideToolInvocations".to_string(), json!(true));
+        } else {
+            inner_request["toolConfig"] = json!({
+                "includeServerSideToolInvocations": true
+            });
+        }
+    }
+
     let sid = session_id.unwrap_or("default");
-    let mut final_request = json!({
+    let final_request = json!({
         "project": project_id,
-        // [CHANGED v4.1.24] Structured requestId to match official format
         "requestId": format!("agent/antigravity/{}/{}", &sid[..sid.len().min(8)], message_count),
         "request": inner_request,
         "model": config.final_model,
         "userAgent": "antigravity",
-        // [CHANGED v4.1.24] Use "agent" for all non-image requests
         "requestType": if config.request_type == "image_gen" { "image_gen" } else { "agent" }
     });
-
-    // [FIX] includeServerSideToolInvocations 必须放在外层 (与 request 同级)，
-    // 放在 request.toolConfig 内会导致 v1internal 返回 400 "Cannot find field"
-    if has_mixed_tools {
-        final_request["includeServerSideToolInvocations"] = json!(true);
-    }
 
     final_request
 }
