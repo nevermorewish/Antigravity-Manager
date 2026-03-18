@@ -514,16 +514,9 @@ pub fn wrap_request(
             })
             .unwrap_or(false);
 
-        if has_mixed_tools {
-            inner_request["toolConfig"] = json!({
-                "functionCallingConfig": { "mode": "VALIDATED" },
-                "includeServerSideToolInvocations": true
-            });
-        } else {
-            inner_request["toolConfig"] = json!({
-                "functionCallingConfig": { "mode": "VALIDATED" }
-            });
-        }
+        inner_request["toolConfig"] = json!({
+            "functionCallingConfig": { "mode": "VALIDATED" }
+        });
     }
 
     // [ADDED v4.1.24] 注入基于账号的稳定 sessionId
