@@ -501,38 +501,37 @@ pub fn wrap_request(
         }
     }
 
-    // [ADDED v4.1.24] 扩展 toolConfig 到 VALIDATED 模式
-    // [FIX] 当 googleSearch (内置工具) 与 functionDeclarations (自定义函数) 同时存在时，
-    // 必须设置 includeServerSideToolInvocations: true，否则 Gemini API 返回 400
-    let has_mixed_tools = inner_request.get("tools")
-        .and_then(|t| t.as_array())
-        .map(|arr| {
-            let has_functions = arr.iter().any(|t| t.get("functionDeclarations").is_some());
-            let has_builtin = arr.iter().any(|t| t.get("googleSearch").is_some() || t.get("googleSearchRetrieval").is_some());
-            has_functions && has_builtin
-        })
-        .unwrap_or(false);
+    // [FIX] Gemini generateContent API (including v1internal) does NOT support
+    // mixed tools (functionDeclarations + googleSearch in the same request).
+    // This is a model-level limitation confirmed by Google (adk-python#969).
+    // When both are present, strip googleSearch to avoid 400 errors.
+    if let Some(tools) = inner_request.get_mut("tools").and_then(|t| t.as_array_mut()) {
+        let has_functions = tools.iter().any(|t| t.get("functionDeclarations").is_some());
+        if has_functions {
+            let before_len = tools.len();
+            tools.retain(|t| {
+                if let Some(o) = t.as_object() {
+                    // Remove standalone googleSearch/googleSearchRetrieval tools
+                    !(o.contains_key("googleSearch") && !o.contains_key("functionDeclarations"))
+                        && !(o.contains_key("googleSearchRetrieval") && !o.contains_key("functionDeclarations"))
+                } else {
+                    true
+                }
+            });
+            if tools.len() != before_len {
+                tracing::info!(
+                    "[Gemini-Wrap] Stripped googleSearch from mixed tools (functionDeclarations present). \
+                     Mixed tools are not supported by generateContent API."
+                );
+            }
+        }
+    }
 
+    // [ADDED v4.1.24] 扩展 toolConfig 到 VALIDATED 模式
     if inner_request.get("tools").is_some() && !inner_request.get("toolConfig").is_some() {
         inner_request["toolConfig"] = json!({
             "functionCallingConfig": { "mode": "VALIDATED" }
         });
-    }
-
-    // [ADDED v4.1.24] 注入基于账号的稳定 sessionId
-    if let Some(account_id_str) = account_id {
-        inner_request["sessionId"] = json!(crate::proxy::common::session::derive_session_id(account_id_str));
-    }
-
-    // [FIX] includeServerSideToolInvocations must be in toolConfig for mixed tools.
-    if has_mixed_tools {
-        if let Some(tool_config) = inner_request.get_mut("toolConfig").and_then(|t| t.as_object_mut()) {
-            tool_config.insert("includeServerSideToolInvocations".to_string(), json!(true));
-        } else {
-            inner_request["toolConfig"] = json!({
-                "includeServerSideToolInvocations": true
-            });
-        }
     }
 
     let sid = session_id.unwrap_or("default");
